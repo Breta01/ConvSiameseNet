@@ -11,23 +11,36 @@ mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
 
 
-def create_pairs(x, digit_indices):
+def create_pairs(x, label_indices, n_labels, labels_equal=True):
     """
-    Positive and negative pair creation.
-    Alternates between positive and negative pairs.
+    Create positive and negative pairs with ration 1:1
+    Ration of pairs per label depends on labels_equal
+
+    Elements order in pairs doesn't meter - number of paris
+    for n elements is n*(n-1)/2
+
+    Returns np.arrays of pairs and labels
     """
     pairs = []
     labels = []
-    n = min([len(digit_indices[d]) for d in range(10)]) - 1
-    for d in range(10):
-        for i in range(n):
-            z1, z2 = digit_indices[d][i], digit_indices[d][i+1]
-            pairs += [[x[z1], x[z2]]]
-            inc = random.randrange(1, 10)
-            dn = (d + inc) % 10
-            z1, z2 = digit_indices[d][i], digit_indices[dn][i]
-            pairs += [[x[z1], x[z2]]]
-            labels += [1, 0]
+    labels_len = [len(label_indices[d]) for d in range(n_labels)]
+
+    for d in range(n_labels):
+        # Number of pairs depends on smallest label dataset
+        if label_equal:
+            n = min(labels_len[d])
+        else:
+            n = labels_len[d]
+
+        for i in range(n-1):
+            for ii in range(i+1, n):
+                pairs += [[x[label_indices[d][i]], x[label_indices[d][ii]]]]
+                # TODO Deal with the negative pairs
+                rnd = random.randrange(1, n_labels)
+                pairs += [[x[label_indices[d][i]],
+                           x[label_indices[(d+rnd) % n_labels][i]]]]
+                labels += [[1], [0]]
+
     return np.array(pairs), np.array(labels)
 
 # Layers for CNN
@@ -40,7 +53,7 @@ def conv2d(input_, W_shape, name):
         W_conv = tf.get_variable('W_conv', shape=W_shape,
                                  initializer=tf.contrib.layers.xavier_initializer())
         b_conv = tf.Variable(tf.constant(0.1, shape=[W_shape[3]]), name="b_conv")
-        
+
         return tf.nn.relu(tf.nn.conv2d(input_,
                                        W_conv,
                                        strides=[1, 1, 1, 1],
@@ -57,7 +70,7 @@ def fc(input_, input_dim, output_dim, name):
         W_fc = tf.get_variable('W_fc', shape=[input_dim, output_dim],
                         initializer=tf.contrib.layers.xavier_initializer())
         b_fc = tf.Variable(tf.constant(0.1, shape=[output_dim]), name="b_fc")
-        
+
         return tf.nn.sigmoid(tf.matmul(input_, W_fc) + b_fc)
 
 # Model creator
@@ -82,7 +95,7 @@ def convnet(image):
 def next_batch(s,e,inputs,labels):
     input1 = inputs[s:e,0]
     input2 = inputs[s:e,1]
-    y= np.reshape(labels[s:e],(len(range(s,e)),1))
+    y = labels[s:e]
     return input1,input2,y
 
 X_train = mnist.train.images
@@ -116,7 +129,7 @@ b_out = tf.Variable(tf.constant(0.1, shape=[1]), name="b_out")
 # Output - result of sigmoid - for future use
 # Prediction - rounded sigmoid to 0 or 1
 output = tf.nn.sigmoid(tf.matmul(distance, W_out) + b_out)
-prediction = tf.round(output) 
+prediction = tf.round(output)
 
 # Using cross entropy for sigmoid as loss
 # @TODO add regularization
@@ -137,27 +150,27 @@ batch_size = 100 # 128
 with tf.Session() as sess:
     print("Starting training")
     tf.global_variables_initializer().run()
-    
+
     # Training cycle
     for epoch in range(30):
         avg_loss = 0.
         avg_acc = 0.
         total_batch = int(X_train.shape[0]/batch_size)
         start_time = time.time()
-        
+
         # Loop over all batches
         for i in range(total_batch):
             s  = i * batch_size
-            e = (i+1) *batch_size
+            e = (i+1) * batch_size
             # Fit training using batch data
-            input1,input2,y = next_batch(s,e,tr_pairs,tr_y)
+            input1, input2, y = next_batch(s,e,tr_pairs,tr_y)
             _, loss_value, acc = sess.run([optimizer, loss, accuracy],
                                           feed_dict={images_L: input1,
                                                      images_R: input2,
                                                      labels: y})
             avg_loss += loss_value
             avg_acc += acc * 100
-            
+
             if i % 25 == 0:
                 print("#", i)
 
@@ -166,17 +179,19 @@ with tf.Session() as sess:
                                                            duration,
                                                            avg_loss/total_batch,
                                                            avg_acc/total_batch))
-    
-    y = np.reshape(tr_y, (tr_y.shape[0], 1))
+        te_acc = accuracy.eval(feed_dict={images_L: te_pairs[:,0],
+                                          images_R: te_pairs[:,1],
+                                          labels: te_y})
+        print('Accuract test set %0.2f' % (100 * te_acc))
+
+
+    # Final Testing
     tr_acc = accuracy.eval(feed_dict={images_L: tr_pairs[:,0],
                                       images_R: tr_pairs[:,1],
-                                      labels: y})
+                                      labels: tr_y})
     print('Accuract training set %0.2f' % (100 * tr_acc))
 
-    # Test model
-    y = np.reshape(te_y, (te_y.shape[0], 1))
     te_acc = accuracy.eval(feed_dict={images_L: te_pairs[:,0],
                                       images_R: te_pairs[:,1],
-                                      labels: y})
+                                      labels: te_y})
     print('Accuract test set %0.2f' % (100 * te_acc))
-
