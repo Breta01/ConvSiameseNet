@@ -155,10 +155,11 @@ with tf.Session() as sess:
                                           feed_dict={images_L: input1,
                                                      images_R: input2,
                                                      labels: y})
-            print(avg_loss, loss_value)
             avg_loss += loss_value
             avg_acc += acc * 100
-            print("#", i)
+            
+            if i % 25 == 0:
+                print("#", i)
 
         duration = time.time() - start_time
         print('epoch %d  time: %f loss %0.5f acc %0.2f' % (epoch,
