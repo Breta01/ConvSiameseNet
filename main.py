@@ -120,8 +120,8 @@ prediction = tf.round(output)
 
 # Using cross entropy for sigmoid as loss
 # @TODO add regularization
-loss = tf.nn.sigmoid_cross_entropy_with_logits(labels=labels,
-                                               logits=output)
+loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=labels,
+                                                              logits=output))
 
 # Optimizer
 optimizer = tf.train.AdamOptimizer(learning_rate = 0.0001).minimize(loss)
@@ -155,12 +155,16 @@ with tf.Session() as sess:
                                           feed_dict={images_L: input1,
                                                      images_R: input2,
                                                      labels: y})
+            print(avg_loss, loss_value)
             avg_loss += loss_value
             avg_acc += acc * 100
             print("#", i)
 
         duration = time.time() - start_time
-        print('epoch %d  time: %f loss %0.5f acc %0.2f' %(epoch,duration,avg_loss/(total_batch),avg_acc/total_batch))
+        print('epoch %d  time: %f loss %0.5f acc %0.2f' % (epoch,
+                                                           duration,
+                                                           avg_loss/total_batch,
+                                                           avg_acc/total_batch))
     
     y = np.reshape(tr_y, (tr_y.shape[0], 1))
     tr_acc = accuracy.eval(feed_dict={images_L: tr_pairs[:,0],
