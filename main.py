@@ -9,45 +9,106 @@ import time
 from tensorflow.examples.tutorials.mnist import input_data
 mnist = input_data.read_data_sets("MNIST_data/", one_hot=True)
 
-
-
-def create_pairs(x, label_indices, n_labels, labels_equal=True):
+class Dataset:
     """
-    Create positive and negative pairs with ration 1:1
-    Ration of pairs per label depends on labels_equal
+    Store data and provide interface for batches training and testing
+    Create positive and negative pairs with ratio 1:1
+    Ratio of pairs per lavel depends on labels_equal
 
-    Elements order in pairs doesn't meter - number of paris
-    for n elements is n*(n-1)/2
-
-    Returns np.arrays of pairs and labels
+    Requires: data, labels (with one hot encoding), number of labels, (eqal)
     """
-    pairs = []
-    labels = []
-    labels_len = [len(label_indices[d]) for d in range(n_labels)]
+    def __init__(self, data, labels, n_labels, labels_equal=True):
+        self.n_labels = n_labels
+        self.label_indices = [np.where(np.argmax(labels, 1) == i)[0]
+                              for i in range(n_labels)]
+        self.data = data
+        self.epoch = 0
+        self.labels_equal = labels_equal
+        self.pos_pairs = self.generatePosPairs()
+        self.neg_pairs = self.generateNegPairs()
+        self.length = len(self.pos_pairs)
+        self.index = 0
 
-    for d in range(n_labels):
-        # Number of pairs depends on smallest label dataset
-        if label_equal:
-            n = min(labels_len[d])
+    def generatePosPairs(self):
+        """ Returns positive pairs created from data set """
+        # TODO Limit number of positive pairs
+        if self.pos_pairs is not None:
+            return self.pos_pairs
         else:
-            n = labels_len[d]
+            pairs = []
+            labels_len = [len(self.label_indices[d])
+                          for d in range(self.n_labels)]
+            for d in range(self.n_labels):
+                # Number of pairs depends on smallest label dataset
+                if self.label_equal:
+                    n = min(self.labels_len[d])
+                else:
+                    n = labels_len[d]
 
-        for i in range(n-1):
-            for ii in range(i+1, n):
-                pairs += [[x[label_indices[d][i]], x[label_indices[d][ii]]]]
-                # TODO Deal with the negative pairs
-                rnd = random.randrange(1, n_labels)
-                pairs += [[x[label_indices[d][i]],
-                           x[label_indices[(d+rnd) % n_labels][i]]]]
-                labels += [[1], [0]]
+                for i in range(n-1):
+                    for ii in range(i+1, n):
+                        pairs += [[self.data[self.label_indices[d][i]],
+                                   self.data[self.label_indices[d][ii]]]]
+            return np.array(pairs)
 
-    return np.array(pairs), np.array(labels)
+    def generateNegPairs(self):
+        """ Retruns random negative pairs same length as positive pairs """
+        pairs = []
+        i = 0
+        while len(pairs) < len(self.pos_pairs):
+            ii = (i + random.randrange(1, self.n_labels)) % self.n_labels
+            pair = [self.data[random.choice(self.label_indices[i])],
+                    self.data[random.choice(self.label_indices[ii])]]
+            if pair not in pairs:
+                pairs += pair
+            i += 1
+
+        return np.array(pairs)
+
+    def get_epoch(self):
+        """ Get current dataset epoch """
+        return self.epoch
+
+    def get_length(self):
+        """ Get positive pairs length """
+        return self.length
+
+    def next_batch(self, batch_size):
+        """
+        Returns batch of images and labels of given length
+        Requires: even batch size
+        """
+        start = self.index
+        self.index += batch_size / 2
+
+        if self.index > self.length:
+            # Shuffle the data
+            perm = np.arange(self.length)
+            np.random.shuffle(perm)
+            self.pos_pairs = self.pos_pairs[perm]
+            self.neg_pairs = self.generateNegPairs()
+            # Start next epoch
+            start = 0
+            self.epoch += 1
+            self.index = batch_size / 2
+
+        end = self.index
+        l_size = batch_size / 2
+        return (np.append(self.pos_pairs[start:end], self.neg_pairs[start:end])
+                np.append(np.ones((l_size/2, 1)), np.zeros((l_size/2, 1))))
+
+    def random_batch(self, batch_size):
+        """
+        Returns random randomly shuffled batch - for testing
+        *** Maybe not neccesary ***
+        """
+        pass
+
 
 # Layers for CNN
 def conv2d(input_, W_shape, name):
     """
-    name - layer name for variable scope
-    W_shape - [height, width, input_layers, output_layers]
+    name - layer name for variable scope W_shape - [height, width, input_layers, output_layers]
     """
     with tf.variable_scope(name):
         W_conv = tf.get_variable('W_conv', shape=W_shape,
@@ -103,10 +164,9 @@ y_train = mnist.train.labels
 X_test = mnist.test.images
 y_test = mnist.test.labels
 
-digit_indices = [np.where(np.argmax(y_train, 1) == i)[0] for i in range(10)]
-tr_pairs, tr_y = create_pairs(X_train, digit_indices)
-digit_indices = [np.where(np.argmax(y_test, 1) == i)[0] for i in range(10)]
-te_pairs, te_y = create_pairs(X_test, digit_indices)
+tr_data = Dataset(X_tain, y_train, 10)
+te_data = Dataset(X_test, y_test, 10)
+
 
 ### MODEL
 images_L = tf.placeholder(tf.float32,shape=([None,784]),name='images_L')
@@ -155,30 +215,26 @@ with tf.Session() as sess:
     for epoch in range(30):
         avg_loss = 0.
         avg_acc = 0.
-        total_batch = int(X_train.shape[0]/batch_size)
+        total_batch = 20            # Not accurate
         start_time = time.time()
 
         # Loop over all batches
         for i in range(total_batch):
-            s  = i * batch_size
-            e = (i+1) * batch_size
             # Fit training using batch data
-            input1, input2, y = next_batch(s,e,tr_pairs,tr_y)
+            tr_input, y = tr_data.next_batch(batch_size)
             _, loss_value, acc = sess.run([optimizer, loss, accuracy],
-                                          feed_dict={images_L: input1,
-                                                     images_R: input2,
+                                          feed_dict={images_L: tr_input[:,0],
+                                                     images_R: tr_input[:,1],
                                                      labels: y})
             avg_loss += loss_value
             avg_acc += acc * 100
-
-            if i % 25 == 0:
-                print("#", i)
 
         duration = time.time() - start_time
         print('epoch %d  time: %f loss %0.5f acc %0.2f' % (epoch,
                                                            duration,
                                                            avg_loss/total_batch,
                                                            avg_acc/total_batch))
+        te_pairs, te_y = te_data.next_batch(te_data.get_length() * 2)
         te_acc = accuracy.eval(feed_dict={images_L: te_pairs[:,0],
                                           images_R: te_pairs[:,1],
                                           labels: te_y})
@@ -186,11 +242,13 @@ with tf.Session() as sess:
 
 
     # Final Testing
+    tr_pairs, tr_y = te_data.next_batch(tr_data.get_length() * 2)
     tr_acc = accuracy.eval(feed_dict={images_L: tr_pairs[:,0],
                                       images_R: tr_pairs[:,1],
                                       labels: tr_y})
     print('Accuract training set %0.2f' % (100 * tr_acc))
 
+    te_pairs, te_y = te_data.next_batch(te_data.get_length() * 2)
     te_acc = accuracy.eval(feed_dict={images_L: te_pairs[:,0],
                                       images_R: te_pairs[:,1],
                                       labels: te_y})
