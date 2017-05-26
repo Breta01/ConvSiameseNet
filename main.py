@@ -17,13 +17,14 @@ class Dataset:
 
     Requires: data, labels (with one hot encoding), number of labels, (eqal)
     """
-    def __init__(self, data, labels, n_labels, labels_equal=True):
+    def __init__(self, data, labels, n_labels, labels_equal=True, max_pairs=-1):
         self.n_labels = n_labels
         self.label_indices = [np.where(np.argmax(labels, 1) == i)[0]
                               for i in range(n_labels)]
         self.data = data
         self.epoch = 0
         self.labels_equal = labels_equal
+        self.max_pairs = max_pairs
         self.pos_pairs = self.generatePosPairs()
         self.neg_pairs = self.generateNegPairs()
         self.length = len(self.pos_pairs)
@@ -31,24 +32,41 @@ class Dataset:
 
     def generatePosPairs(self):
         """ Returns positive pairs created from data set """
-        # TODO Limit number of positive pairs
         if self.pos_pairs is not None:
             return self.pos_pairs
         else:
             pairs = []
             labels_len = [len(self.label_indices[d])
                           for d in range(self.n_labels)]
-            for d in range(self.n_labels):
-                # Number of pairs depends on smallest label dataset
-                if self.label_equal:
-                    n = min(self.labels_len[d])
-                else:
-                    n = labels_len[d]
 
-                for i in range(n-1):
-                    for ii in range(i+1, n):
-                        pairs += [[self.data[self.label_indices[d][i]],
-                                   self.data[self.label_indices[d][ii]]]]
+            if self.label_equal or self.max_pairs != -1:
+                # Number of pairs depends on smallest label dataset
+                n = min(self.labels_len[d])
+
+                lab = 0
+                idx = 0
+                pad = 1
+
+                while len(pairs) < self.max_pairs and pad < n:
+                    pairs += [[self.data[self.label_indices[lab][idx]],
+                               self.data[self.label_indices[lab][idx + pad]]]]
+
+                    lab = (lab + 1) % self.n_labels
+                    if lab == 0:
+                        idx += 1
+                        if (idx + pad) >= n:
+                            idx = 0
+                            pad += 1
+
+            else:
+                # Create maximum number of pairs
+                for lab in range(self.n_labels):
+                    n = labels_len[lab]
+                    for i in range(n-1):
+                        for ii in range(i+1, n):
+                            pairs += [[self.data[self.label_indices[lab][i]],
+                                       self.data[self.label_indices[lab][ii]]]]
+
             return np.array(pairs)
 
     def generateNegPairs(self):
