@@ -32,55 +32,59 @@ class Dataset:
 
     def generatePosPairs(self):
         """ Returns positive pairs created from data set """
-        if self.pos_pairs is not None:
-            return self.pos_pairs
+        pairs = []
+        labels_len = [len(self.label_indices[d])
+                      for d in range(self.n_labels)]
+
+        start_time = time.time() # DEBUG
+
+        if self.labels_equal or self.max_pairs != -1:
+            # Number of pairs depends on smallest label dataset
+            n = min(labels_len)
+
+            lab = 0
+            idx = 0
+            pad = 1
+
+            while len(pairs) < self.max_pairs and pad < n:
+                pairs += [[self.data[self.label_indices[lab][idx]],
+                           self.data[self.label_indices[lab][idx + pad]]]]
+
+                lab = (lab + 1) % self.n_labels
+                if lab == 0:
+                    idx += 1
+                    if (idx + pad) >= n:
+                        idx = 0
+                        pad += 1
+
         else:
-            pairs = []
-            labels_len = [len(self.label_indices[d])
-                          for d in range(self.n_labels)]
+            # Create maximum number of pairs
+            for lab in range(self.n_labels):
+                n = labels_len[lab]
+                for i in range(n-1):
+                    for ii in range(i+1, n):
+                        pairs += [[self.data[self.label_indices[lab][i]],
+                                    self.data[self.label_indices[lab][ii]]]]
 
-            if self.label_equal or self.max_pairs != -1:
-                # Number of pairs depends on smallest label dataset
-                n = min(self.labels_len[d])
-
-                lab = 0
-                idx = 0
-                pad = 1
-
-                while len(pairs) < self.max_pairs and pad < n:
-                    pairs += [[self.data[self.label_indices[lab][idx]],
-                               self.data[self.label_indices[lab][idx + pad]]]]
-
-                    lab = (lab + 1) % self.n_labels
-                    if lab == 0:
-                        idx += 1
-                        if (idx + pad) >= n:
-                            idx = 0
-                            pad += 1
-
-            else:
-                # Create maximum number of pairs
-                for lab in range(self.n_labels):
-                    n = labels_len[lab]
-                    for i in range(n-1):
-                        for ii in range(i+1, n):
-                            pairs += [[self.data[self.label_indices[lab][i]],
-                                       self.data[self.label_indices[lab][ii]]]]
-
-            return np.array(pairs)
+        print("Positive pairs generated in", time.time() - start_time) # DEBUG
+        return np.array(pairs)
 
     def generateNegPairs(self):
         """ Retruns random negative pairs same length as positive pairs """
         pairs = []
+        chosen = []
         i = 0
+        start_time = time.time() # DEBUG
         while len(pairs) < len(self.pos_pairs):
             ii = (i + random.randrange(1, self.n_labels)) % self.n_labels
-            pair = [self.data[random.choice(self.label_indices[i])],
-                    self.data[random.choice(self.label_indices[ii])]]
-            if pair not in pairs:
-                pairs += pair
-            i += 1
+            choice = [random.choice(self.label_indices[i]),
+                      random.choice(self.label_indices[ii])]
+            if choice not in chosen:
+                chosen += [choice]
+                pairs += [[self.data[choice[0]], self.data[choice[1]]]]
+            i = (i + 1) % self.n_labels
 
+        print("Negative pairs generated in", time.time() - start_time) # DEBUG
         return np.array(pairs)
 
     def get_epoch(self):
@@ -97,7 +101,8 @@ class Dataset:
         Requires: even batch size
         """
         start = self.index
-        self.index += batch_size / 2
+        l_size = int(batch_size / 2)
+        self.index += l_size
 
         if self.index > self.length:
             # Shuffle the data
@@ -111,9 +116,10 @@ class Dataset:
             self.index = batch_size / 2
 
         end = self.index
-        l_size = batch_size / 2
-        return (np.append(self.pos_pairs[start:end], self.neg_pairs[start:end])
-                np.append(np.ones((l_size/2, 1)), np.zeros((l_size/2, 1))))
+        return (np.append(self.pos_pairs[start:end],
+                          self.neg_pairs[start:end], 0),
+                np.append(np.ones((l_size, 1)),
+                          np.zeros((l_size, 1)), 0))
 
     def random_batch(self, batch_size):
         """
@@ -182,8 +188,9 @@ y_train = mnist.train.labels
 X_test = mnist.test.images
 y_test = mnist.test.labels
 
-tr_data = Dataset(X_tain, y_train, 10)
-te_data = Dataset(X_test, y_test, 10)
+starttime = time.time()
+tr_data = Dataset(X_train, y_train, 10, max_pairs=5000)
+te_data = Dataset(X_test, y_test, 10, max_pairs=5000)
 
 
 ### MODEL
@@ -223,7 +230,7 @@ accuracy = tf.reduce_mean(tf.cast(correct_prediction, tf.float32))
 
 
 ### TRAINING
-batch_size = 100 # 128
+batch_size = 64 # 128
 
 with tf.Session() as sess:
     print("Starting training")
@@ -252,7 +259,7 @@ with tf.Session() as sess:
                                                            duration,
                                                            avg_loss/total_batch,
                                                            avg_acc/total_batch))
-        te_pairs, te_y = te_data.next_batch(te_data.get_length() * 2)
+        te_pairs, te_y = te_data.next_batch(1000)
         te_acc = accuracy.eval(feed_dict={images_L: te_pairs[:,0],
                                           images_R: te_pairs[:,1],
                                           labels: te_y})
@@ -260,13 +267,13 @@ with tf.Session() as sess:
 
 
     # Final Testing
-    tr_pairs, tr_y = te_data.next_batch(tr_data.get_length() * 2)
+    tr_pairs, tr_y = te_data.next_batch(1000)
     tr_acc = accuracy.eval(feed_dict={images_L: tr_pairs[:,0],
                                       images_R: tr_pairs[:,1],
                                       labels: tr_y})
     print('Accuract training set %0.2f' % (100 * tr_acc))
 
-    te_pairs, te_y = te_data.next_batch(te_data.get_length() * 2)
+    te_pairs, te_y = te_data.next_batch(1000)
     te_acc = accuracy.eval(feed_dict={images_L: te_pairs[:,0],
                                       images_R: te_pairs[:,1],
                                       labels: te_y})
