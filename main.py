@@ -177,18 +177,11 @@ def convnet(image):
     return full_7
 
 
-def next_batch(s,e,inputs,labels):
-    input1 = inputs[s:e,0]
-    input2 = inputs[s:e,1]
-    y = labels[s:e]
-    return input1,input2,y
-
 X_train = mnist.train.images
 y_train = mnist.train.labels
 X_test = mnist.test.images
 y_test = mnist.test.labels
 
-starttime = time.time()
 tr_data = Dataset(X_train, y_train, 10, max_pairs=5000)
 te_data = Dataset(X_test, y_test, 10, max_pairs=5000)
 
@@ -278,3 +271,6 @@ with tf.Session() as sess:
                                       images_R: te_pairs[:,1],
                                       labels: te_y})
     print('Accuract test set %0.2f' % (100 * te_acc))
+
+
+    # TODO Predicting correct label based accuracy on sample of labeled data.
