@@ -113,7 +113,7 @@ class Dataset:
             # Start next epoch
             start = 0
             self.epoch += 1
-            self.index = batch_size / 2
+            self.index = l_size
 
         end = self.index
         return (np.append(self.pos_pairs[start:end],
@@ -263,7 +263,7 @@ with tf.Session() as sess:
         te_acc = accuracy.eval(feed_dict={images_L: te_pairs[:,0],
                                           images_R: te_pairs[:,1],
                                           labels: te_y})
-        print('Accuract test set %0.2f' % (100 * te_acc))
+        print('Accuracy on test set %0.2f' % (100 * te_acc))
 
 
     # Final Testing
